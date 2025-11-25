@@ -1,6 +1,7 @@
 #include <Servo.h>
 #include <Keypad.h>
 #include <DHT11.h>
+#include <LiquidCrystal_I2C.h>
 
 // ===== PIN DEFINE =====
 #define PIN_LDR_SENSOR1 A0
@@ -34,8 +35,12 @@ DHT11 dht11(PIN_DHT11);
 Servo servoDoor;
 Servo servoSolarTracker;
 
+// ===== LCD =====
+LiquidCrystal_I2C lcd(0x27,16,2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
+
 // ===== GLOBAL STATE =====
 int solarPos = 90;
+String passwordInput = "";
 
 // Timers cho non-blocking
 unsigned long lastDHTRead = 0;
@@ -60,26 +65,31 @@ void setup() {
   servoSolarTracker.attach(PIN_SERVO_SOLAR_TRACKER);
   servoSolarTracker.write(solarPos);
 
-  // Serial.println("Initialized!");
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(3,0);
+  lcd.print("Hello, welcome!");
+
+  Serial.println("Initialized!");
 }
 
 void loop() {
-  // ====== DHT READER EVERY 1s ======
+  // ====== DHT READER EVERY 5s ======
   if (millis() - lastDHTRead >= 5000) {
     lastDHTRead = millis();
 
     int temp = 0, hum = 0;
-    int result = dht11.readTemperatureHumidity(temp, hum); /** WARNING: this block 1sec */
+    // int result = dht11.readTemperatureHumidity(temp, hum); /** WARNING: this block 1sec */
 
-    if (result == 0) {
-      // Serial.print("Temp: ");
-      // Serial.print(temp);
-      // Serial.print(" C\tHumi: ");
-      // Serial.print(hum);
-      // Serial.println(" %");
-    } else {
-      // Serial.println(DHT11::getErrorString(result));
-    }
+    // if (result == 0) {
+    //   Serial.print("Temp: ");
+    //   Serial.print(temp);
+    //   Serial.print(" C\tHumi: ");
+    //   Serial.print(hum);
+    //   Serial.println(" %");
+    // } else {
+    //   Serial.println(DHT11::getErrorString(result));
+    // }
   }
 
   // ===== KEYPAD SCAN every 50ms =====
@@ -90,11 +100,28 @@ void loop() {
     if (key) {
       Serial.print("Key: ");
       Serial.println(key);
+      if (key == 'C') {
+        if (passwordInput == String("1234")) {
+          Serial.println("Door unlock!");
+          openDoor();
+        }
+        passwordInput = "";
+      }
+      else if (key == 'D') {
+        Serial.println("Door lock!");
+        closeDoor();
+      }
+      else {
+        passwordInput += key;
+        Serial.println("Pass:"+passwordInput);
+      }
+      if (passwordInput.length() > 4) passwordInput.remove(0);
+
     }
   }
 
   // ===== SOLAR TRACKING every 100ms =====
-  if (millis() - lastSolarCheck >= 10) {
+  if (millis() - lastSolarCheck >= 20) {
     // Serial.println(" lastSolarCheck");
     lastSolarCheck = millis();
     solarTrackingUpdate();
