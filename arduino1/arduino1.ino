@@ -15,6 +15,13 @@
 #define STATE_SUNNY LOW
 #define STATE_NO_SUNNY HIGH
 
+enum E_LCD_STATE {
+  E_LCD_STATE_TEMPHUMI,
+  E_LCD_STATE_INPUT_PWD,
+  E_LCD_STATE_CORRECT_PWD,
+  E_LCD_STATE_WRONG_PWD
+};
+
 // ===== KEYPAD =====
 const byte KPAD_ROWS_MAX = 4;
 const byte KPAD_COLS_MAX = 4;
@@ -41,16 +48,26 @@ LiquidCrystal_I2C lcd(0x27,16,2);  // set the LCD address to 0x27 for a 16 chars
 // ===== GLOBAL STATE =====
 int solarPos = 90;
 String passwordInput = "";
+const String CorrectPassword = "2222"; // Mat khau cua
+E_LCD_STATE lcdState = E_LCD_STATE_TEMPHUMI;
+int temp = 10, humi = 10;
+int doorPos = 0;
 
 // Timers cho non-blocking
 unsigned long lastDHTRead = 0;
 unsigned long lastSolarCheck = 0;
 unsigned long lastKeypadCheck = 0;
+unsigned long lastLcdCheck = 0;
+unsigned long lastKeyTime = 0;
+unsigned long lastLcdStateTime = 0;
+
 
 // Functions
 void openDoor();
 void closeDoor();
 void solarTrackingUpdate();
+void showLcdTempHumi();
+void updateLCDState();
 
 void setup() {
   Serial.begin(9600);
@@ -65,9 +82,12 @@ void setup() {
   servoSolarTracker.attach(PIN_SERVO_SOLAR_TRACKER);
   servoSolarTracker.write(solarPos);
 
+  openDoor();
+  closeDoor();
+
   lcd.init();
   lcd.backlight();
-  lcd.setCursor(3,0);
+  lcd.setCursor(0,0);
   lcd.print("Hello, welcome!");
 
   Serial.println("Initialized!");
@@ -78,45 +98,16 @@ void loop() {
   if (millis() - lastDHTRead >= 5000) {
     lastDHTRead = millis();
 
-    int temp = 0, hum = 0;
-    // int result = dht11.readTemperatureHumidity(temp, hum); /** WARNING: this block 1sec */
+    int result = dht11.readTemperatureHumidity(temp, humi); /** WARNING: this block 1sec */
 
-    // if (result == 0) {
-    //   Serial.print("Temp: ");
-    //   Serial.print(temp);
-    //   Serial.print(" C\tHumi: ");
-    //   Serial.print(hum);
-    //   Serial.println(" %");
-    // } else {
-    //   Serial.println(DHT11::getErrorString(result));
-    // }
-  }
-
-  // ===== KEYPAD SCAN every 50ms =====
-  if (millis() - lastKeypadCheck >= 10) {
-    // Serial.println(" lastKeypadCheck");
-    lastKeypadCheck = millis();
-    char key = kpad.getKey();
-    if (key) {
-      Serial.print("Key: ");
-      Serial.println(key);
-      if (key == 'C') {
-        if (passwordInput == String("1234")) {
-          Serial.println("Door unlock!");
-          openDoor();
-        }
-        passwordInput = "";
-      }
-      else if (key == 'D') {
-        Serial.println("Door lock!");
-        closeDoor();
-      }
-      else {
-        passwordInput += key;
-        Serial.println("Pass:"+passwordInput);
-      }
-      if (passwordInput.length() > 4) passwordInput.remove(0);
-
+    if (result == 0) {
+      Serial.print("Temp: ");
+      Serial.print(temp);
+      Serial.print(" C\tHumi: ");
+      Serial.print(humi);
+      Serial.println(" %");
+    } else {
+      Serial.println(DHT11::getErrorString(result));
     }
   }
 
@@ -125,6 +116,12 @@ void loop() {
     // Serial.println(" lastSolarCheck");
     lastSolarCheck = millis();
     solarTrackingUpdate();
+  }
+
+  // ===== LCD update every 100ms =====
+  if (millis() - lastLcdCheck >= 200) {
+    lastLcdCheck = millis();
+    updateLCDState();
   }
 }
 
@@ -135,16 +132,18 @@ void loop() {
 
 // Smooth open
 void openDoor() {
-  for (int pos = 0; pos <= 90; pos+=10) {
-    servoDoor.write(pos);
+  if (doorPos >= 90) return;
+  for (; doorPos <= 90; doorPos+=1) {
+    servoDoor.write(doorPos);
     delay(15);
   }
 }
 
 // Smooth close
 void closeDoor() {
-  for (int pos = 90; pos >= 0; pos-=10) {
-    servoDoor.write(pos);
+  if (doorPos <= 0) return;
+  for (; doorPos > 0; doorPos-=1) {
+    servoDoor.write(doorPos);
     delay(15);
   }
 }
@@ -168,5 +167,84 @@ void solarTrackingUpdate() {
       solarPos -= 1;
       servoSolarTracker.write(solarPos);
     }
+  }
+}
+
+void showLcdTempHumi() {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("-Smart Home NCT-");
+  lcd.setCursor(0,1);
+  lcd.print("Temp:"+String(temp)+"  Humi:"+String(humi));
+  lcd.print(temp, 1);
+}
+
+void updateLCDState() {
+  char key = kpad.getKey();
+  switch (lcdState) {
+    case E_LCD_STATE_TEMPHUMI:
+      if (millis() - lastLcdStateTime > 500) {
+        lastLcdStateTime = millis();
+        showLcdTempHumi();
+        closeDoor();
+      }
+      if (key) {
+        lcdState = E_LCD_STATE_INPUT_PWD;
+        passwordInput = "";
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("Input password:");
+        lastKeyTime = millis();
+      }
+      break;
+
+    case E_LCD_STATE_INPUT_PWD:
+      if (key) {
+        lastKeyTime = millis();
+        passwordInput += key;
+        lcd.setCursor(0,1);
+        lcd.print(passwordInput);
+      }
+
+      if (millis() - lastKeyTime >= 3000) {
+        lcdState = E_LCD_STATE_TEMPHUMI;
+        lastLcdStateTime = millis();
+        showLcdTempHumi();
+        closeDoor();
+      }
+
+      if (passwordInput.length() == CorrectPassword.length()) {
+        if (passwordInput.equals(CorrectPassword)) {
+          lcdState = E_LCD_STATE_CORRECT_PWD;
+          lastLcdStateTime = millis();
+          lcd.clear();
+          lcd.print("Success");
+          openDoor();
+        } else {
+          lcdState = E_LCD_STATE_WRONG_PWD;
+          lastLcdStateTime = millis();
+          lcd.clear();
+          lcd.print("Wrong!");
+        }
+      }
+      break;
+
+    case E_LCD_STATE_CORRECT_PWD:
+      if (millis() - lastLcdStateTime >= 2000) {
+        lcdState = E_LCD_STATE_TEMPHUMI;
+        lastLcdStateTime = millis();
+        showLcdTempHumi();
+        closeDoor();
+      }
+      break;
+
+    case E_LCD_STATE_WRONG_PWD:
+      if (millis() - lastLcdStateTime >= 2000) {
+        lcdState = E_LCD_STATE_TEMPHUMI;
+        lastLcdStateTime = millis();
+        showLcdTempHumi();
+        closeDoor();
+      }
+      break;
   }
 }
