@@ -50,7 +50,7 @@ int solarPos = 90;
 String passwordInput = "";
 const String CorrectPassword = "2222"; // Mat khau cua
 E_LCD_STATE lcdState = E_LCD_STATE_TEMPHUMI;
-int temp = 10, humi = 10;
+int temp = 26, humi = 71;
 int doorPos = 60;
 
 // Timers cho non-blocking
