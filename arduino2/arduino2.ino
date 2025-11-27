@@ -19,21 +19,19 @@
 #define STATE_BURNING LOW
 #define STATE_GOOD    LOW
 
-void openDoor();
-void closeDoor();
-
 
 Servo servoRainCover;
+int servoRainCoverPos = 180;
 
-void openRainCover() {
-  for (int pos = 0; pos <= 180; pos += 1) { // goes from 0 degrees to 180 degrees
-    servoRainCover.write(pos);
+void expandRainCover() {
+  for (; servoRainCoverPos >= 90; servoRainCoverPos -= 1) { // goes from 0 degrees to 180 degrees
+    servoRainCover.write(servoRainCoverPos);
     vTaskDelay(15 / portTICK_PERIOD_MS);
   }
 }
-void closeRainCover() {
-  for (int pos = 180; pos > 0; pos -= 1) { // goes from 0 degrees to 180 degrees
-    servoRainCover.write(pos);
+void colapseRainCover() {
+  for (; servoRainCoverPos < 180; servoRainCoverPos += 1) { // goes from 0 degrees to 180 degrees
+    servoRainCover.write(servoRainCoverPos);
     vTaskDelay(15 / portTICK_PERIOD_MS);
   }
 }
@@ -51,13 +49,13 @@ void TaskRainCoverController(void *pvParameters) {
     if (currentTime - lastTime < 3000) continue;
 
     if (digitalRead(PIN_RAIN_SENSOR) == STATE_RAINING && bRainCoverOpened == true) {
-      openRainCover();
+      expandRainCover();
       bRainCoverOpened = false;
       Serial.println("Rain cover closed!");
     }
 
     if (digitalRead(PIN_RAIN_SENSOR) != STATE_RAINING && bRainCoverOpened == false) {
-      closeRainCover();
+      colapseRainCover();
       bRainCoverOpened = true;
       Serial.println("Rain cover opened!");
     }
@@ -118,6 +116,7 @@ void setup() {
   digitalWrite(PIN_RELAY, LOW);
 
   servoRainCover.attach(PIN_SERVO_RAIN_COVER);
+  servoRainCover.write(180);
 
   Serial.println("Started!");
 

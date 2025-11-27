@@ -51,7 +51,7 @@ String passwordInput = "";
 const String CorrectPassword = "2222"; // Mat khau cua
 E_LCD_STATE lcdState = E_LCD_STATE_TEMPHUMI;
 int temp = 10, humi = 10;
-int doorPos = 0;
+int doorPos = 60;
 
 // Timers cho non-blocking
 unsigned long lastDHTRead = 0;
@@ -77,13 +77,10 @@ void setup() {
   pinMode(PIN_LDR_SENSOR2, INPUT);
 
   servoDoor.attach(PIN_SERVO_DOOR);
-  servoDoor.write(0);
+  void closeDoor();
 
   servoSolarTracker.attach(PIN_SERVO_SOLAR_TRACKER);
   servoSolarTracker.write(solarPos);
-
-  openDoor();
-  closeDoor();
 
   lcd.init();
   lcd.backlight();
@@ -132,8 +129,8 @@ void loop() {
 
 // Smooth open
 void openDoor() {
-  if (doorPos >= 90) return;
-  for (; doorPos <= 90; doorPos+=1) {
+  if (doorPos >= 60) return;
+  for (; doorPos <= 60; doorPos+=1) {
     servoDoor.write(doorPos);
     delay(15);
   }
