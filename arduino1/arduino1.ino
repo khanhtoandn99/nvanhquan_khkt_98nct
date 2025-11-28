@@ -2,18 +2,24 @@
 #include <Keypad.h>
 #include <DHT11.h>
 #include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
 
-// ===== PIN DEFINE =====
-#define PIN_LDR_SENSOR1 A0
-#define PIN_LDR_SENSOR2 A1
+// ==================== PIN DEFINE ====================
+#define PIN_LDR_SENSOR1            A0
+#define PIN_LDR_SENSOR2            A1
 
-#define PIN_SERVO_DOOR 10
-#define PIN_SERVO_SOLAR_TRACKER 11
+#define PIN_SERVO_DOOR             10
+#define PIN_SERVO_SOLAR_TRACKER    11
 
-#define PIN_DHT11 12
+#define PIN_DHT11                  12
 
-#define STATE_SUNNY LOW
-#define STATE_NO_SUNNY HIGH
+// Avoid A4,A5 of I2C pins
+#define PIN_SWSERIAL_TX            A2
+#define PIN_SWSERIAL_RX            A3
+
+// ==================== STATE DEFINE ====================
+#define STATE_SUNNY                LOW
+#define STATE_NO_SUNNY             HIGH
 
 enum E_LCD_STATE {
   E_LCD_STATE_TEMPHUMI,
@@ -22,7 +28,7 @@ enum E_LCD_STATE {
   E_LCD_STATE_WRONG_PWD
 };
 
-// ===== KEYPAD =====
+// ==================== KEYPAD ====================
 const byte KPAD_ROWS_MAX = 4;
 const byte KPAD_COLS_MAX = 4;
 char keys[KPAD_ROWS_MAX][KPAD_COLS_MAX] = {
@@ -35,17 +41,35 @@ byte kpadRowPins[KPAD_ROWS_MAX] = {9,8,7,6};
 byte kpadColPins[KPAD_COLS_MAX] = {5,4,3,2};
 Keypad kpad = Keypad( makeKeymap(keys), kpadRowPins, kpadColPins, KPAD_ROWS_MAX, KPAD_COLS_MAX );
 
-// ===== DHT =====
+// ==================== DHT ====================
 DHT11 dht11(PIN_DHT11);
 
-// ===== SERVO =====
+// ==================== SERVO ====================
 Servo servoDoor;
 Servo servoSolarTracker;
 
-// ===== LCD =====
+// ==================== LCD ====================
 LiquidCrystal_I2C lcd(0x27,16,2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
-// ===== GLOBAL STATE =====
+// ==================== SERIAL COMM SM ====================
+// From ESP to Arduino:
+#define CMD_LIGHT_STATE        "CMD:LIGHT=" // + 1-byte (char). "1"->ON, "0"->OFF
+#define CMD_DOOR_STATE         "CMD:DOOR="  // + 1-byte (char). "1"->OPEN, "0"->CLOSE
+
+// From Arduino to ESP
+#define ACK_OK                 "ACK:OK"
+
+#define EV_LIGHT_STATE         "EV:LIGHT=" // + 1-byte (char). "1"->ON, "0"->OFF
+#define EV_DOOR_STATE          "EV:DOOR=" // + 1-byte (char). "1"->ON, "0"->OFF
+#define EV_RAINCOVER_STATE     "EV:RAINCOVER=" // + 1-byte (char). "1"->ON, "0"->OFF
+#define EV_FIREPUMP_STATE      "EV:FIREPUMP=" // + 1-byte (char). "1"->ON, "0"->OFF
+#define EV_GARDENPUMP_STATE    "EV:GARDENPUMP=" // + 1-byte (char). "1"->ON, "0"->OFF
+#define EV_TEMP_VALUE          "EV:TEMP=" // + 2-byte (char). Ex: "24" degree
+#define EV_HUMI_VALUE          "EV:HUMI=" // + 2-byte (char). Ex: "72" %
+
+SoftwareSerial espSerial(PIN_SWSERIAL_RX, PIN_SWSERIAL_TX);
+
+// ==================== GLOBAL STATE ====================
 int solarPos = 90;
 String passwordInput = "";
 const String CorrectPassword = "2222"; // Mat khau cua
@@ -68,9 +92,12 @@ void closeDoor();
 void solarTrackingUpdate();
 void showLcdTempHumi();
 void updateLCDState();
+void sendToESP(const String &msg);
+void handleEspCommand(String cmd);
 
 void setup() {
   Serial.begin(9600);
+  espSerial.begin(9600);
   Serial.println("System start!");
 
   pinMode(PIN_LDR_SENSOR1, INPUT);
@@ -91,7 +118,7 @@ void setup() {
 }
 
 void loop() {
-  // ====== DHT READER EVERY 5s ======
+  // ===================== DHT READER EVERY 5s =====================
   if (millis() - lastDHTRead >= 5000) {
     lastDHTRead = millis();
 
@@ -106,26 +133,46 @@ void loop() {
     } else {
       Serial.println(DHT11::getErrorString(result));
     }
+
+      // Send latest temp value to server
+      String sTemp = String(temp);
+      if (sTemp.length() >= 2) sTemp = sTemp.substring(0,2);
+      else sTemp = "0"+sTemp;
+      Serial.println(String(EV_TEMP_VALUE)+sTemp);
+      sendToESP(String(String(EV_TEMP_VALUE)+sTemp));
+
+      // Send latest humi value to server
+      String sHumi = String(humi);
+      if (sHumi.length() >= 2) sHumi = sHumi.substring(0,2);
+      else sHumi = "0"+sHumi;
+      Serial.println(String(EV_HUMI_VALUE)+sHumi);
+      sendToESP(String(EV_HUMI_VALUE)+sHumi);
   }
 
-  // ===== SOLAR TRACKING every 100ms =====
+  // ==================== SOLAR TRACKING every 100ms ====================
   if (millis() - lastSolarCheck >= 20) {
     // Serial.println(" lastSolarCheck");
     lastSolarCheck = millis();
     solarTrackingUpdate();
   }
 
-  // ===== LCD update every 100ms =====
+  // ==================== LCD update every 100ms ====================
   if (millis() - lastLcdCheck >= 200) {
     lastLcdCheck = millis();
     updateLCDState();
   }
+
+  // ==================== Handle ESP command ====================
+  if (espSerial.available()) {
+    String cmd = espSerial.readStringUntil('\n');
+    handleEspCommand(cmd);
+  }
 }
 
 
-// ===============================================================
-// ====================== FUNCTION ZONE ==========================
-// ===============================================================
+// ===================================================================================================================================================================================================================================================
+// ================================================================================== FUNCTION ZONE =====================================================================================================
+// ===================================================================================================================================================================================================================================================
 
 // Smooth open
 void openDoor() {
@@ -134,6 +181,7 @@ void openDoor() {
     servoDoor.write(doorPos);
     delay(15);
   }
+  sendToESP(String(EV_DOOR_STATE)+"1");
 }
 
 // Smooth close
@@ -143,6 +191,7 @@ void closeDoor() {
     servoDoor.write(doorPos);
     delay(15);
   }
+  sendToESP(String(EV_DOOR_STATE)+"0");
 }
 
 
@@ -243,5 +292,23 @@ void updateLCDState() {
         closeDoor();
       }
       break;
+  }
+}
+
+void sendToESP(const String &msg) {
+  espSerial.println(msg);
+}
+
+void handleEspCommand(String cmd) {
+  cmd.trim();
+  Serial.println("handleEspCommand: " + cmd);
+  if (cmd.startsWith(CMD_DOOR_STATE)) {
+      if (cmd.substring(String(CMD_DOOR_STATE).length()).toInt() == 1) {
+        openDoor();
+        Serial.println("opened by server!");
+      } else {
+        closeDoor();
+        Serial.println("closed by server!");
+      }
   }
 }
