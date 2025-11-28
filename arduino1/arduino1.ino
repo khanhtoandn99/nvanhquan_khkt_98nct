@@ -84,6 +84,7 @@ unsigned long lastKeypadCheck = 0;
 unsigned long lastLcdCheck = 0;
 unsigned long lastKeyTime = 0;
 unsigned long lastLcdStateTime = 0;
+unsigned long lastEventTempHumiTime = 0;
 
 
 // Functions
@@ -133,20 +134,6 @@ void loop() {
     } else {
       Serial.println(DHT11::getErrorString(result));
     }
-
-      // Send latest temp value to server
-      String sTemp = String(temp);
-      if (sTemp.length() >= 2) sTemp = sTemp.substring(0,2);
-      else sTemp = "0"+sTemp;
-      Serial.println(String(EV_TEMP_VALUE)+sTemp);
-      sendToESP(String(String(EV_TEMP_VALUE)+sTemp));
-
-      // Send latest humi value to server
-      String sHumi = String(humi);
-      if (sHumi.length() >= 2) sHumi = sHumi.substring(0,2);
-      else sHumi = "0"+sHumi;
-      Serial.println(String(EV_HUMI_VALUE)+sHumi);
-      sendToESP(String(EV_HUMI_VALUE)+sHumi);
   }
 
   // ==================== SOLAR TRACKING every 100ms ====================
@@ -160,6 +147,21 @@ void loop() {
   if (millis() - lastLcdCheck >= 200) {
     lastLcdCheck = millis();
     updateLCDState();
+  }
+
+  if (millis() - lastEventTempHumiTime >= 10000) {
+    lastEventTempHumiTime = millis();
+    // Send latest temp value to server
+    String sTemp = String(temp);
+    if (sTemp.length() >= 2) sTemp = sTemp.substring(0,2);
+    else sTemp = "0"+sTemp;
+    sendToESP(String(EV_TEMP_VALUE)+sTemp);
+
+    // Send latest humi value to server
+    String sHumi = String(humi);
+    if (sHumi.length() >= 2) sHumi = sHumi.substring(0,2);
+    else sHumi = "0"+sHumi;
+    sendToESP(String(EV_HUMI_VALUE)+sHumi);
   }
 
   // ==================== Handle ESP command ====================
@@ -305,10 +307,10 @@ void handleEspCommand(String cmd) {
   if (cmd.startsWith(CMD_DOOR_STATE)) {
       if (cmd.substring(String(CMD_DOOR_STATE).length()).toInt() == 1) {
         openDoor();
-        Serial.println("opened by server!");
+        Serial.println("Door opened by server!");
       } else {
         closeDoor();
-        Serial.println("closed by server!");
+        Serial.println("Door closed by server!");
       }
   }
 }

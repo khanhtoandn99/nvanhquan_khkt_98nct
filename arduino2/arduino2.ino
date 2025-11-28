@@ -218,7 +218,7 @@ void GardenCareSM() {
       break;
 
     case GARDEN_RUNNING:
-      if (millis() - gardenStartTime >= 3000) {
+      if (millis() - gardenStartTime >= 10000) {
         digitalWrite(PIN_GARDEN_PUMP_RELAY, LOW);
         sendToESP(String(EV_GARDENPUMP_STATE)+"0");
         gardenState = GARDEN_IDLE;
